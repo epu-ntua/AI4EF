@@ -3,6 +3,8 @@
 
 #
 [![DOI](https://zenodo.org/badge/733031403.svg)](https://doi.org/10.5281/zenodo.12205373)
+[![YouTube](https://img.shields.io/badge/YouTube-Watch%20Now-red)](https://www.youtube.com/watch?v=JDTy8DvhDvA)
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 
 The repository for AI4F services for updating building energy class and forecasting effect of potential benefit at installing solar panels.
 
