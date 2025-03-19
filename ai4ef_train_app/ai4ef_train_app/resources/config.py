@@ -11,12 +11,13 @@ shared_storage_dir = Path(os.environ.get("SHARED_STORAGE_PATH"))
 parent_dir = os.path.join(current_dir, shared_storage_dir)
 
 class TrainConfig(ConfigurableResource):
-    input_filepath: str = "http://enershare.epu.ntua.gr/consumer-data-app/openapi/0.5/efcomp" # "../datasets/EF_comp.csv" 
+    input_filepath: str = f"{parent_dir}/datasets/filtered_efcomp.csv" #"http://enershare.epu.ntua.gr/consumer-data-app/openapi/0.5/efcomp" # "../datasets/EF_comp.csv" 
+    # api_url: str = "http://localhost:7654"
     authorization: str = os.environ.get('API_KEY')
     provider_agent_id: str = os.environ.get("PROVIDER_AGENT_ID") # Forward-Id
     consumer_agent_id: str = os.environ.get("CONSUMER_AGENT_ID") # Forward-Sender
     seed: int = 42
-    max_epochs: int = 10
+    max_epochs: int = 3
     n_layers: str = "2,6"
     layer_sizes: str = "128,256,512,1024,2048"
     l_rate: str = "0.0001,0.001"
@@ -24,13 +25,13 @@ class TrainConfig(ConfigurableResource):
     optimizer_name: str = "Adam"
     batch_size: str = "256,512,1024"
     num_workers: int = 2
-    n_trials: int = 3
+    n_trials: int = 2
     preprocess: int = 1
-    feature_cols: str = "Building total area,Above ground floors,Initial energy class,Energy consumption before,Energy class after"#,Reference area,Underground floor
+    feature_cols: str = "Building total area,Above ground floors,Initial energy class,Energy consumption before,Energy class after"
     target_cols: str = "Carrying out construction works,Reconstruction of engineering systems,Heat installation,Water heating system"
     predict: int = 0
-    ml_path: str = f"{parent_dir}/models-scalers/best_MLPClassifier.ckpt"
-    scalers_path: str = f"{parent_dir}/models-scalers/MLPClassifier_scalers.pkl"
+    ml_path: str = f"{parent_dir}/models-scalers/latvia_best_MLPClassifier.ckpt"
+    scalers_path: str = f"{parent_dir}/models-scalers/latvia_MLPClassifier_scalers.pkl"
     optuna_viz: str = f"{parent_dir}/optuna_viz/classifier/"
     mlClass: str = "Classifier"
 
@@ -50,9 +51,7 @@ class TrainConfig(ConfigurableResource):
     def to_dict(self):
         return {
             "input_filepath": self.input_filepath,
-            "authorization": self.authorization,
-            "provider_agent_id": self.provider_agent_id,
-            "consumer_agent_id": self.consumer_agent_id,
+            "api_url": self.api_url,
             "seed": self.seed,
             "max_epochs": self.max_epochs,
             "n_layers": self.n_layers,
@@ -71,4 +70,20 @@ class TrainConfig(ConfigurableResource):
             "scalers_path": self.scalers_path,
             "optuna_viz": self.optuna_viz,
             "mlClass": self.mlClass,
+        }
+    
+    def hparams_as_dict(self):
+        return {
+            "seed": self.seed,
+            "max_epochs": self.max_epochs,
+            "n_layers": self.n_layers,
+            "layer_sizes": self.layer_sizes,
+            "l_rate": self.l_rate,
+            "activation": self.activation,
+            "optimizer_name": self.optimizer_name,
+            "batch_size": self.batch_size,
+            "num_workers": self.num_workers,
+            "n_trials": self.n_trials,
+            "feature_cols": self.feature_cols,
+            "target_cols": self.target_cols,
         }

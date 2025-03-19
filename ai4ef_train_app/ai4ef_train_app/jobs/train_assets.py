@@ -10,11 +10,19 @@ import pytorch_lightning as pl # type: ignore
 from pytorch_lightning import Trainer # type: ignore
 from pytorch_lightning.callbacks import EarlyStopping # type: ignore
 
-from dagster import multi_asset, AssetOut, AssetIn, MetadataValue, Output# type: ignore
-from dagster import AssetOut, graph_multi_asset
+from dagster import multi_asset, AssetOut, AssetIn, MetadataValue, Output, AssetOut, graph_multi_asset
 from .class_assets import *
 from .data_assets import extract_data_cols
 from typing import Tuple
+import mlflow
+import pickle
+import copy
+import tempfile
+from dotenv import load_dotenv
+
+load_dotenv()
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+mlflow.set_experiment("AI4EF_EXPERIMENT")
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -99,6 +107,36 @@ def objective(trial, config, feature_cols, train_data, validation_data):
 
     return trainer.callback_metrics["val_loss"].item()
 
+def store_params(study, opt_tmpdir):
+    best_params = {}; best_params.update(study.best_params)
+    best_params['layer_sizes'] = ','.join(str(value) 
+                                    for key,value in best_params.items() 
+                                    if key.startswith('n_units_l'))
+
+    # remove n_units_lXXX elements 
+    best_params = { k: v for k, v in best_params.items() 
+                    if not k.startswith("n_units_l")}
+
+    print(f'Store best_params: {best_params}')
+    # write binary, overwrite if file exists, creates file if not exists
+    best_trial_file = open(f"{opt_tmpdir}/optuna_best_trial.pkl", "wb") 
+    pickle.dump(best_params, best_trial_file)
+    best_trial_file.close()    
+
+    best_result = copy.deepcopy(study.best_params)
+    best_result['value'] = study.best_trial.value
+
+    # appends, pointer at EOF if file exists, creates file if not exists    
+    with open('best_trial_diary.txt','a') as trial_diary_file: 
+        trial_diary_file.write(str(best_result)+ "\n")
+
+    with open(f"{opt_tmpdir}/best_trial.txt",'a') as trial_file:
+        trial_file.write(f'========= Optuna Best Trial =========\n')
+        for key, value in best_result.items():
+            trial_file.write(f'{key}: {value}\n')
+            
+    study.trials_dataframe().to_csv(f"{opt_tmpdir}/trials_dataframe.csv")
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Ops ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 @multi_asset(description="Op that performs HPO/training",
@@ -160,15 +198,35 @@ def store_models(context, study: optuna.study.Study):
     Returns: best optuna model
     """
 
-    config = context.resources.config
+    with mlflow.start_run(run_name=f'train_pipeline', nested=True) as mlrun:
 
-    print(f'Save best model at file: \"{config.ml_path}\"')
-    best_model = study.user_attrs["best_trainer"]
+        if not os.path.exists("./temp_files/"): os.makedirs("./temp_files/")
+        # store mlflow metrics/artifacts on temp file
+        with tempfile.TemporaryDirectory(dir='./temp_files/') as opt_tmpdir:
 
-    print(type(best_model))
-    print(config.ml_path)
-    best_model.save_checkpoint(config.ml_path)
-    print(f'Save data scalers at files: \"categorical_scalers\" and \"train_scalers\"')
+            config = context.resources.config
+
+            print(f'Save best model at file: \"{config.ml_path}\"')
+            best_model = study.user_attrs["best_trainer"]
+
+            print(type(best_model))
+            print(config.ml_path)
+            best_model.save_checkpoint(config.ml_path)
+
+            store_params(study, opt_tmpdir)
+
+            # signature = infer_signature(train_X.head(1), pd.DataFrame(preds))
+            mlflow.pytorch.log_model(best_model.model, "best_model") # , signature=signature
+            # mlflow.log_params(best_model.hparams)
+            # mlflow.log_metrics(best_model.callback_metrics)
+
+            mlflow.log_params(context.resources.config.hparams_as_dict())
+            mlflow.log_artifacts(opt_tmpdir, "optuna_results")
+            mlflow.set_tag("run_id", mlrun.info.run_id)
+            mlflow.set_tag('best_trial_uri', f'{mlrun.info.artifact_uri}/optuna_results/optuna_best_trial.pkl')
+            mlflow.set_tag("stage", "train")
+
+            print(f'Save data scalers at files: \"categorical_scalers\" and \"train_scalers\"')
     
     return best_model
 
@@ -178,6 +236,7 @@ def store_models(context, study: optuna.study.Study):
         outs={"best_model": AssetOut(dagster_type=pl.Trainer),
               "study": AssetOut(dagster_type=optuna.study.Study)})
 def train_pipeline(training_data):
+
     study = optuna_optimize(training_data)
     best_model = store_models(study)
     return {"study": study, "best_model": best_model}

@@ -1,0 +1,8 @@
+{'n_layers': 2, 'n_units_l0': 512, 'n_units_l1': 1024, 'l_rate': 0.00028034525487947423, 'batch_size': '256', 'value': 0.39553940296173096}
+{'n_layers': 2, 'n_units_l0': 256, 'n_units_l1': 256, 'l_rate': 0.00035804250523057974, 'batch_size': '512', 'value': 0.6406901478767395}
+{'n_layers': 2, 'n_units_l0': 256, 'n_units_l1': 256, 'l_rate': 0.0006023759059170055, 'batch_size': '256', 'value': 0.6138820648193359}
+{'n_layers': 3, 'n_units_l0': 512, 'n_units_l1': 2048, 'n_units_l2': 1024, 'l_rate': 0.00012127392347967172, 'batch_size': '512', 'value': 0.5964238047599792}
+{'n_layers': 3, 'n_units_l0': 512, 'n_units_l1': 512, 'n_units_l2': 256, 'l_rate': 0.00044317347029676566, 'batch_size': '512', 'value': 0.6257509589195251}
+{'n_layers': 2, 'n_units_l0': 256, 'n_units_l1': 128, 'l_rate': 0.0003926621133867575, 'batch_size': '256', 'value': 0.6488651633262634}
+{'n_layers': 3, 'n_units_l0': 512, 'n_units_l1': 1024, 'n_units_l2': 512, 'l_rate': 0.0002439083565631714, 'batch_size': '256', 'value': 0.5776636600494385}
+{'n_layers': 3, 'n_units_l0': 512, 'n_units_l1': 2048, 'n_units_l2': 1024, 'l_rate': 0.0005013370920620899, 'batch_size': '1024', 'value': 0.39209461212158203}

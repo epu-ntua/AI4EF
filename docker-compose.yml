@@ -1,23 +1,16 @@
 services:
-  ai4ef-dashboard:
-    image: korbakis/enershare-leif-uc:no-auth
-    ports:
-      - "3000:3000"
-    networks:
-      - nginx-proxy-manager_enershare_network
+  deployai-shared-ai4ef-model-app:
+    container_name: deployai-shared-ai4ef-model-app
     restart: always
-    
-  ai4ef-model-app:
-    container_name: ai4ef-model-app
-    restart: always
+    image: deployai-ai4ef-backend  # Specify a name for the shared image
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8888:8888"
-    command: ["uvicorn", "ai4ef_model_app.api:app", "--host", "0.0.0.0", "--port", "8888"]
+      - "7778:7778"
+    command: ["uvicorn", "ai4ef_model_app.api:app", "--host", "0.0.0.0", "--port", "7778"]
     expose:
-      - "8888"
+      - "7778"
     volumes:
       - shared-storage:/leif_app/shared_storage/  # Use a named volume for shared access
       - ./data_mount:/leif_app/data_mount/  # Bind mount for additional folder
@@ -27,31 +20,41 @@ services:
       - SHARED_STORAGE_PATH=shared_storage/
       - COUNTRY=latvia
 
-  ai4ef-train-app:
-    container_name: ai4ef-train-app
+  deployai-shared-ai4ef-train-app:
+    container_name: deployai-shared-ai4ef-train-app
     restart: always
-    image: ai4ef-train-app
+    image: deployai-ai4ef-backend  # Specify a name for the shared image
     build:
       context: .
       dockerfile: Dockerfile
     working_dir: /leif_app/ai4ef_train_app
-    command: ["dagster", "dev", "-h", "0.0.0.0", "-p", "8890"]
+    command: ["dagster", "dev", "-h", "0.0.0.0", "-p", "${TRAIN_APP_PORT}"]
     expose:
-      - "8890"
+      - "${TRAIN_APP_PORT}"
     volumes:
       - shared-storage:/leif_app/shared_storage/  # Use a named volume for shared access
       - ./data_mount:/leif_app/data_mount/  # Bind mount for additional folder
     ports:
-      - "8890:8890"
+      - "${TRAIN_APP_PORT}:${TRAIN_APP_PORT}"
     networks:
       - nginx-proxy-manager_enershare_network
     environment:
       - SHARED_STORAGE_PATH=shared_storage/
-      - API_KEY=APIKEY-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-      - CONSUMER_AGENT_ID=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
-      - PROVIDER_AGENT_ID=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+      - API_KEY=APIKEY-8fb34046139a60d2de235862428f38dd281cb83580b873be6d57cd48bf2add37
+      - CONSUMER_AGENT_ID=urn:ids:enershare:connectors:NTUA:Consumer:ConsumerAgent
+      - PROVIDER_AGENT_ID=urn:ids:enershare:connectors:NTUA:Provider:Pilot7
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL}
+      - MINIO_CLIENT_URL=${MINIO_CLIENT_URL}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - MINIO_SSL=${MINIO_SSL}
 
 networks:
+  my_network:
+    driver: bridge
   nginx-proxy-manager_enershare_network:
     external: true
 

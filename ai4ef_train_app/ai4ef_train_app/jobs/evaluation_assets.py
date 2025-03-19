@@ -22,9 +22,18 @@ from typing import Tuple
 import base64
 from io import BytesIO
 import json
-
 from sklearn.metrics import classification_report, multilabel_confusion_matrix
 import seaborn as sns
+
+import mlflow
+import pickle
+import copy
+import tempfile
+from dotenv import load_dotenv
+
+load_dotenv()
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI"))
+mlflow.set_experiment("AI4EF_EXPERIMENT")
 
 def calculate_mape(actual, predicted):
     return np.mean(np.abs((np.array(actual) - np.array(predicted)) / np.array(actual))) * 100 if actual else 0
@@ -44,104 +53,122 @@ def calculate_metrics(context, testing_data):
     """
     config = context.resources.config
 
-    # _, _, test_data, _ = data_split
-    test_X, test_Y = testing_data
-    
-    best_model = globals()[config.mlClass].load_from_checkpoint(checkpoint_path=os.path.abspath(config.ml_path))
-    test_X_tensor = torch.tensor(test_X.values, dtype=torch.float32)
-    test_Y_tensor = torch.tensor(test_Y.values, dtype=torch.float32)
-    metrics = {}; image_metadata = {}
+    with mlflow.start_run(run_name=f'evaluation_pipeline', nested=True) as mlrun:
 
-    if(config.mlClass == "Classifier"):
-        pred_Y = best_model(test_X_tensor).round() 
+        if not os.path.exists("./temp_files/"): os.makedirs("./temp_files/")
+        # store mlflow metrics/artifacts on temp file
+        with tempfile.TemporaryDirectory(dir='./temp_files/') as eval_tmpdir:
 
-        # Define classification metrics
-        accuracy = MultilabelAccuracy(num_labels=4)
-        precision = MultilabelPrecision(num_labels=4, average='macro')
-        recall = MultilabelRecall(num_labels=4, average='macro')
-        f1 = MultilabelF1Score(num_labels=4, average='macro')
-        ham = MultilabelHammingDistance(num_labels=4, average='macro')
-
-        metrics = {
-            'accuracy': accuracy(pred_Y, test_Y_tensor).item(),
-            'precision': precision(pred_Y, test_Y_tensor).item(),
-            'recall': recall(pred_Y, test_Y_tensor).item(),
-            'f1_score': f1(pred_Y, test_Y_tensor).item(),
-            'hamming': ham(pred_Y, test_Y_tensor).item()
-        }
-
-        image_metadata['metrics'] = json.dumps(metrics)
-
-        pred_Y = pd.DataFrame(pred_Y.detach().numpy()) #create and convert output tensor to numpy array
-
-        report = classification_report(test_Y, pred_Y, digits=5, output_dict=True)
-
-        _, target_cols = extract_data_cols(config)
-        plt.close() # close any mpl figures (important, doesn't work otherwise)
-
-        confusion_matrices = multilabel_confusion_matrix(test_Y, pred_Y)
-        for i, cm in enumerate(confusion_matrices):
-            print(f"Confusion Matrix for Class \"{target_cols[i]}\":\n {cm}\n")
-    
-            buffer = BytesIO()
-
-            # ax, labels, title and ticks
-            ax= plt.subplot();
-            sns.heatmap(cm, annot=True, fmt='g', ax=ax, cmap=plt.cm.Greens);  #annot=True to annotate cells, ftm='g' to disable scientific notation
-            ax.set_xlabel('Predicted labels'); ax.set_ylabel('True labels');  
-            ax.set_xticklabels(['No','Yes']); ax.set_yticklabels(['No','Yes'])
-            plt.title(target_cols[i]); plt.show()
-            print(f"True Positives: {cm[1,1]}, False Positives: {cm[0,1]}, True Negatives: {cm[0,0]}, False Negatives: {cm[1,0]} \n\n")
+            # _, _, test_data, _ = data_split
+            test_X, test_Y = testing_data
             
-            plt.savefig(buffer, format='png'); plt.close(); 
-            buffer.seek(0)  # Rewind buffer
-            image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            image_metadata[target_cols[i]] = MetadataValue.md(f"![{target_cols[i]}](data:image/png;base64,{image_data})")
+            best_model = globals()[config.mlClass].load_from_checkpoint(checkpoint_path=os.path.abspath(config.ml_path))
+            test_X_tensor = torch.tensor(test_X.values, dtype=torch.float32)
+            test_Y_tensor = torch.tensor(test_Y.values, dtype=torch.float32)
+            metrics = {}; image_metadata = {}
+
+            if(config.mlClass == "Classifier"):
+                pred_Y = best_model(test_X_tensor).round() 
+
+                # Define classification metrics
+                accuracy = MultilabelAccuracy(num_labels=4)
+                precision = MultilabelPrecision(num_labels=4, average='macro')
+                recall = MultilabelRecall(num_labels=4, average='macro')
+                f1 = MultilabelF1Score(num_labels=4, average='macro')
+                ham = MultilabelHammingDistance(num_labels=4, average='macro')
+
+                metrics = {
+                    'accuracy': accuracy(pred_Y, test_Y_tensor).item(),
+                    'precision': precision(pred_Y, test_Y_tensor).item(),
+                    'recall': recall(pred_Y, test_Y_tensor).item(),
+                    'f1_score': f1(pred_Y, test_Y_tensor).item(),
+                    'hamming': ham(pred_Y, test_Y_tensor).item()
+                }
+
+                image_metadata['metrics'] = json.dumps(metrics)
+
+                pred_Y = pd.DataFrame(pred_Y.detach().numpy()) #create and convert output tensor to numpy array
+
+                pd.DataFrame(test_Y_tensor).to_csv(f"{eval_tmpdir}/actual_data.csv")
+                pd.DataFrame(pred_Y).to_csv(f"{eval_tmpdir}/pred_data.csv")
             
-        image_metadata['report'] = MetadataValue.md(pd.DataFrame(report).transpose().to_markdown()) 
+                report = classification_report(test_Y, pred_Y, digits=5, output_dict=True)
 
-    elif(config.mlClass == "Regressor"):
-        pred_Y = best_model(test_X_tensor).detach().numpy() #create and convert output tensor to numpy array
+                _, target_cols = extract_data_cols(config)
+                plt.close() # close any mpl figures (important, doesn't work otherwise)
 
-        pred_series = TimeSeries.from_values(pred_Y)
-        actual_series = TimeSeries.from_values(test_Y)
+                confusion_matrices = multilabel_confusion_matrix(test_Y, pred_Y)
+                for i, cm in enumerate(confusion_matrices):
+                    print(f"Confusion Matrix for Class \"{target_cols[i]}\":\n {cm}\n")
+            
+                    buffer = BytesIO()
 
-        # ~~~~~~~~~~~~ For MAPE to work ~~~~~~~~~~~~
-        # Define the extremely small number you want to add
-        # small_number = 1e-10
+                    # ax, labels, title and ticks
+                    ax= plt.subplot();
+                    sns.heatmap(cm, annot=True, fmt='g', ax=ax, cmap=plt.cm.Greens);  #annot=True to annotate cells, ftm='g' to disable scientific notation
+                    ax.set_xlabel('Predicted labels'); ax.set_ylabel('True labels');  
+                    ax.set_xticklabels(['No','Yes']); ax.set_yticklabels(['No','Yes'])
+                    plt.title(target_cols[i]); plt.show()
+                    print(f"True Positives: {cm[1,1]}, False Positives: {cm[0,1]}, True Negatives: {cm[0,0]}, False Negatives: {cm[1,0]} \n\n")
+                    
+                    plt.savefig(buffer, format='png'); plt.close(); 
+                    buffer.seek(0)  # Rewind buffer
+                    image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                    image_metadata[target_cols[i]] = MetadataValue.md(f"![{target_cols[i]}](data:image/png;base64,{image_data})")
+                    
+                image_metadata['report'] = MetadataValue.md(pd.DataFrame(report).transpose().to_markdown()) 
 
-        # # Add this small number to each value in the series
-        # pred_series = pred_series + small_number
-        # actual_series = actual_series + small_number
-        # # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            elif(config.mlClass == "Regressor"):
+                pred_Y = best_model(test_X_tensor).detach().numpy() #create and convert output tensor to numpy array
 
-        pred_series = TimeSeries.from_values(pred_Y)
-        actual_series = TimeSeries.from_values(test_Y)
+                pred_series = TimeSeries.from_values(pred_Y)
+                actual_series = TimeSeries.from_values(test_Y)
 
-        # Evaluate the best_model prediction
-        metrics = {
-            "SMAPE": smape_darts(actual_series,pred_series),
-            "MAE": mae_darts(actual_series,pred_series),
-            "MSE": mse_darts(actual_series,pred_series),
-            "RMSE": rmse_darts(actual_series,pred_series)
-            # ,
-            # "MAPE": mape_darts(actual_series,pred_series)
-        }
+                # ~~~~~~~~~~~~ For MAPE to work ~~~~~~~~~~~~
+                # Define the extremely small number you want to add
+                # small_number = 1e-10
+
+                # # Add this small number to each value in the series
+                # pred_series = pred_series + small_number
+                # actual_series = actual_series + small_number
+                # # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+                pred_series = TimeSeries.from_values(pred_Y)
+                actual_series = TimeSeries.from_values(test_Y)
+
+                # Evaluate the best_model prediction
+                metrics = {
+                    "SMAPE": smape_darts(actual_series,pred_series),
+                    "MAE": mae_darts(actual_series,pred_series),
+                    "MSE": mse_darts(actual_series,pred_series),
+                    "RMSE": rmse_darts(actual_series,pred_series)
+                    # ,
+                    # "MAPE": mape_darts(actual_series,pred_series)
+                }
+
+                pd.DataFrame(actual_series).to_csv(f"{eval_tmpdir}/actual_data.csv")
+                pd.DataFrame(pred_series).to_csv(f"{eval_tmpdir}/pred_data.csv")
+                    
+                plt.figure(figsize=(10, 6))
+                actual_series.plot(label='actual series')
+                pred_series.plot(label='pred series')
+                plt.title("Comparison Plot")
+                buffer = BytesIO()
+                plt.savefig(buffer, format="png"); plt.close(); 
+                buffer.seek(0)  # Rewind buffer
+                image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                image_metadata['comparison_plot'] = MetadataValue.md(f"![comparison_plot](data:image/png;base64,{image_data})")
+                image_metadata["metrics"] = json.dumps(metrics)
+            else:
+                print("This should not be printed!")
         
-        plt.figure(figsize=(10, 6))
-        actual_series.plot(label='actual series')
-        pred_series.plot(label='pred series')
-        plt.title("Comparison Plot")
-        buffer = BytesIO()
-        plt.savefig(buffer, format="png"); plt.close(); 
-        buffer.seek(0)  # Rewind buffer
-        image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        image_metadata['comparison_plot'] = MetadataValue.md(f"![comparison_plot](data:image/png;base64,{image_data})")
-        image_metadata["metrics"] = json.dumps(metrics)
-    else:
-        print("This should not be printed!")
-    
-    return Output(metrics, metadata=image_metadata)
+            mlflow.log_artifacts(eval_tmpdir, "eval_results")
+            mlflow.log_metrics(metrics)
+            mlflow.set_tag("run_id", mlrun.info.run_id)        
+            mlflow.set_tag("stage", "eval")
+            mlflow.set_tag("mlClass", config.mlClass)
+
+        return Output(metrics, metadata=image_metadata)
 
 def print_optuna_report(study):
     """
