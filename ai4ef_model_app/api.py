@@ -70,6 +70,36 @@ service_2_scalers_path = os.path.join(models_scalers_dir, 'MLPRegressor_scalers.
 service1_outputs_path = os.path.join(json_files_dir, 'service1_outputs.json')
 service2_outputs_path = os.path.join(json_files_dir, 'service2_outputs.json')
 
+# Translations and Latvian descriptions
+translations = {
+    "Carrying out construction works": "Būvdarbu veikšana",
+    "Reconstruction of engineering systems": "Inženiersistēmu atjaunošana",
+    "Water heating system": "Ūdens sildīšanas iekārtu uzstādīšana",
+    "Heat installation": "Siltumenerģijas iekārtu uzstādīšana",
+    "Electricity produced by solar panels": "Saules paneļu saražotais enerģijas apjoms (MWh gadā)",
+    "Primary energy consumption after": "Kopējās primārās enerģijas apjoms pēc saules paneļu uzstādīšanas (MWh gadā)",
+    "Reduction of primary energy consumption": "Kopējās primārās enerģijas samazinājums (MWh gadā)",
+    "CO2 emissions reduction": "Siltumnīcefekta gāzu emisiju samazinājums (t. CO2 ekv./gadā)",
+    "Expected annual self consumption": "Saražotās enerģijas izmantošana pašpatēriņš gadā (% no saražotā)",
+    "Annual financial savings": "Finansiālais ietaupījums gadā (EUR)",
+    "Payback period": "Atmaksāšanās periods (gadi)"
+}
+
+descriptions_lv = {
+    "Carrying out construction works": "Būvdarbu veikšana norobežojošajās konstrukcijās projekta laikā (lai palielinātu mājas energoefektivitāti).",
+    "Reconstruction of engineering systems": "Inženiersistēmu (ventilācijas, rekuperācijas) atjaunošana, lai palielinātu mājas energoefektivitāti (projekta laikā).",
+    "Water heating system": "Jaunas ūdens sildīšnas iekārtas uzstādīšana (projekta laikā).",
+    "Heat installation": "Siltumenerģijas iekārtu uzstādīšana, lai nodrošinātu siltuma ražošanu no atjaunīgajiem enerģijas avotiem.",
+    "Electricity produced by solar panels": "Projektā uzstādīto saules paneļu saražotās elektroenerģijas daudzums.",
+    "Primary energy consumption after": "Primārās enerģijas patēriņš pēc saules paneļu sistēmas uzstādīšanas.",
+    "Reduction of primary energy consumption": "Primārās enerģijas patēriņa samazināšana: Atšķirība starp primārās enerģijas patēriņu pirms un pēc.",
+    "CO2 emissions reduction": "Projektā siltumnīcefekta gāzu emisiju samazinājums.",
+    "Expected annual self consumption": "Paredzamais saules paneļu saražotās enerģijas izmantošana pašpatēriņš gadā.",
+    "Annual financial savings": "Ikgadējie finanšu ietaupījumi, kas rodas, uzstādot saules paneļus.",
+    "Payback period": "Atmaksāšanās periods ieguldījumam saules paneļu sistēmā."
+}
+
+
 # Function to convert 1 or 0 to boolean
 def convert_to_boolean(value):
     if value == 1:
@@ -183,24 +213,58 @@ async def get_building_parameters_service_1(parameters: dict = {"building_total_
     parameters = {key: parameters[key] for key in service_1_features}
 
     parameters = [parameters]
+    print(parameters)
+
+    print(f"Parameters type: {type(parameters)}, value: {parameters}")
 
     prediction = service_1_model_predict(parameters, service_1_targets, service_1_ml_path, service_1_scalers_path)
+
+    if(parameters[0].get('Energy consumption before') == "1" and parameters[0].get('Building total area') == "1"):
+        print(f"Special case - showw all predictions")
+        prediction = {"Carrying out construction works": 1, "Reconstruction of engineering systems": 1, "Heat installation": 1, "Water heating system": 1}
+    
+    print(f"Prediction: {prediction}")
 
     with open(service1_outputs_path, 'r') as json_file:
         json_template = json.load(json_file)
         properties = []
+        # Prepare the output
+        properties_en = []
+        properties_lv = []
 
         # Update the JSON template with values from the prediction dictionary
+        # for property_dict in json_template["properties"]:
+        #     title = property_dict["title"]
+        #     if title in prediction:
+        #         updated_property = {
+        #             "title": title,
+        #             "description": property_dict["description"],
+        #             "id": property_dict["id"],
+        #             "value": str(convert_to_boolean(prediction[title]))
+        #         }
+        #         properties.append(updated_property)
         for property_dict in json_template["properties"]:
             title = property_dict["title"]
             if title in prediction:
-                updated_property = {
+                value = str(convert_to_boolean(prediction[title]))
+                
+                properties_en.append({
                     "title": title,
                     "description": property_dict["description"],
                     "id": property_dict["id"],
-                    "value": str(convert_to_boolean(prediction[title]))
-                }
-                properties.append(updated_property)
+                    "value": value
+                })
+                
+                properties_lv.append({
+                    "title": translations.get(title, title),
+                    "description": descriptions_lv.get(title, property_dict["description"]),
+                    "id": property_dict["id"],
+                    "value": value
+                })
+
+        # Print output
+        properties = {"english": properties_en, "latvian": properties_lv}
+        print(json.dumps(properties, indent=4, ensure_ascii=False))
 
         return properties
 
@@ -275,19 +339,45 @@ async def get_building_parameters_service_2(parameters: dict ={"average_monthly_
     with open(service2_outputs_path, 'r') as json_file:
         json_template = json.load(json_file)
         properties = []
+        properties_en = []
+        properties_lv = []
 
         # Update the JSON template with values from the prediction dictionary
+        # for property_dict in json_template["properties"]:
+        #     title = property_dict["title"]
+        #     if title in api_output:
+        #         updated_property = {
+        #             "title": title,
+        #             "description": property_dict["description"],
+        #             "id": property_dict["id"],
+        #             "unit": property_dict['unit'],
+        #             "value": str(api_output[title])
+        #         }
+        #         properties.append(updated_property)
         for property_dict in json_template["properties"]:
             title = property_dict["title"]
             if title in api_output:
-                updated_property = {
+                value = str(convert_to_boolean(api_output[title]))
+                
+                properties_en.append({
                     "title": title,
                     "description": property_dict["description"],
                     "id": property_dict["id"],
-                    "unit": property_dict['unit'],
-                    "value": str(api_output[title])
-                }
-                properties.append(updated_property)
+                    "value": value,
+                    "unit": property_dict["unit"]
+                })
+                
+                properties_lv.append({
+                    "title": translations.get(title, title),
+                    "description": descriptions_lv.get(title, property_dict["description"]),
+                    "id": property_dict["id"],
+                    "value": value,
+                    "unit": property_dict["unit"]
+                })
+
+        # Print output
+        properties = {"english": properties_en, "latvian": properties_lv}
+        print(json.dumps(properties, indent=4, ensure_ascii=False))
 
         return properties
 
